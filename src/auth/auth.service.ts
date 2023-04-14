@@ -1,34 +1,40 @@
-import { Injectable, UnauthorizedException } from '@nestjs/common';
-import { UserDto } from '../user/user.dto';
-import { UserService } from '../user/user.service';
-import { LoginDto } from './dto/login.dto';
-import * as bcrypt from 'bcrypt';
+import { Injectable, UnauthorizedException } from "@nestjs/common";
+import { UserDto } from "../user/user.dto";
+import { UserService } from "../user/user.service";
+import { LoginDto } from "./dto/login.dto";
+import { JwtService } from "@nestjs/jwt";
+import * as bcrypt from "bcrypt";
+import { User } from "../user/user.schema";
+import stringConst from "../common/constant/string.constant";
 
 @Injectable()
 export class AuthService {
-  constructor(private readonly userService: UserService) {}
+  constructor(
+    private readonly userService: UserService,
+    private jwtService: JwtService
+  ) {}
 
-  async userSignup(userDto: UserDto) {
-    try {
-      return await this.userService.saveUser(userDto);
-    } catch (error) {
-      console.log('error', error);
-    }
+  async userSignup(userDto: UserDto): Promise<User> {
+    return await this.userService.saveUser(userDto);
   }
 
-  async userSigning(loginDto: LoginDto) {
-    const user = await this.userService.findOne({
-      username: loginDto.username,
-    });
+  async userLogin(loginDto: LoginDto) {
+    const { username, password } = loginDto;
+    const user = await this.userService.findOne({ username });
     if (user) {
-      const isCompared: boolean = await bcrypt.compare(
-        loginDto.password,
-        user.password,
+      const isPasswordMatch: boolean = await bcrypt.compare(
+        password,
+        user.password
       );
-      if (isCompared) return user;
+      if (isPasswordMatch) {
+        const payload = { username: user.username, sub: user.id };
+        return {
+          access_token: await this.jwtService.signAsync(payload),
+        };
+      }
     }
     throw new UnauthorizedException({
-      message: 'email or password incorrect',
+      message: stringConst().EMAIL_PASSWORD_INCORRECT,
     });
   }
 }

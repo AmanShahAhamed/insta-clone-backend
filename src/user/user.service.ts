@@ -1,69 +1,65 @@
-import {
-  BadRequestException,
-  ConflictException,
-  Injectable,
-} from '@nestjs/common';
-import { InjectModel } from '@nestjs/mongoose';
-import { Model } from 'mongoose';
-import { UserDto } from './user.dto';
-import { User } from './user.schema';
-import * as bcrypt from 'bcrypt';
+import { ConflictException, Injectable } from "@nestjs/common";
+import { InjectModel } from "@nestjs/mongoose";
+import { Model } from "mongoose";
+import { UserDto } from "./user.dto";
+import { User } from "./user.schema";
+import stringConstant from "../common/constant/string.constant";
+import * as bcrypt from "bcrypt";
+
+type userFindCondition = { email: string } | { mobileNumber: string };
 
 @Injectable()
 export class UserService {
   constructor(@InjectModel(User.name) private userModel: Model<User>) {}
 
   async findUsers(query: any): Promise<User[]> {
-    try {
-      if (!query) return null;
-      return await this.userModel.find(query);
-    } catch (error) {
-      console.log('Error', error);
-    }
+    if (!query) return null;
+    return await this.userModel.find(query);
   }
 
   async saveUser(userDto: UserDto): Promise<User> {
-    try {
-      //checking for registered email or phone
-      const emailOrPhoneUniqueCondition = userDto.email
-        ? { email: userDto.email }
-        : { mobileNumber: userDto.mobileNumber };
-      const isRegisteredUser = await this.userModel.findOne(
-        emailOrPhoneUniqueCondition,
-      );
-      if (isRegisteredUser)
-        throw new ConflictException({
-          message:
-            'This email or phone already registered please login or click to forget password',
-        });
+    const { username, password } = userDto;
+    const isUserExist: boolean = await this.checkUserExistence(userDto);
+    if (isUserExist)
+      throw new ConflictException({
+        message: stringConstant().EMAIL_PHONE_EXIST,
+      });
 
-      //checking for unique username
-      const isUniqueUsername = await this.userModel.findOne({
-        username: userDto.username,
+    //checking for unique username
+    const isUsernameUnique = await this.checkUsernameUnique(username);
+    if (!isUsernameUnique)
+      throw new ConflictException({
+        message: stringConstant().USERNAME_EXIST,
       });
-      if (isUniqueUsername)
-        throw new ConflictException({
-          message: 'username is already registered please try different one',
-        });
-      const salt = await bcrypt.genSalt();
-      const hashedPassword = await bcrypt.hash(userDto.password, salt);
-      userDto.password = hashedPassword;
-      const user = new this.userModel(userDto);
-      return await user.save();
-    } catch (error) {
-      console.log(error);
-      throw new BadRequestException({
-        message: error?.response?.message || error,
-      });
-    }
+
+    userDto.password = await this.encryptPassword(password);
+    const user = new this.userModel(userDto);
+    return await user.save();
   }
 
   async findOne(query: any) {
     if (!query) return null;
-    try {
-      return await this.userModel.findOne(query);
-    } catch (error) {
-      console.log('error', error);
-    }
+    return await this.userModel.findOne(query);
+  }
+
+  private findEmailOrPhoneCondition(userDto: UserDto): userFindCondition {
+    const { email, mobileNumber } = userDto;
+    return email ? { email } : { mobileNumber };
+  }
+
+  private async checkUserExistence(userDto: UserDto): Promise<boolean> {
+    const userFindCondition = this.findEmailOrPhoneCondition(userDto);
+    const user = await this.userModel.findOne(userFindCondition);
+    return user ? true : false;
+  }
+
+  private async checkUsernameUnique(username: string): Promise<boolean> {
+    const user = await this.userModel.findOne({ username });
+    return user ? false : true;
+  }
+
+  private async encryptPassword(password: string): Promise<string> {
+    const salt = await bcrypt.genSalt();
+    return await bcrypt.hash(password, salt);
   }
 }
